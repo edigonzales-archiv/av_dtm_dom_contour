@@ -1,0 +1,72 @@
+#!/usr/bin/php
+<?php
+
+require_once 'class.db.php';
+
+define("DTM_SRC_DIR", "/home/stefan/Downloads/dtm_grid/");
+define("WORK_DIR", "/home/stefan/tmp/dtm/");
+
+
+$db = new dbObj('pg', 'dbname=xanadu2_test host=localhost user=mspublic port=5432', 'mspublic');
+
+$sql = "SELECT a.nummer, ST_XMin(box2d(the_geom)) as xmin, ST_XMax(box2d(the_geom)) as xmax, ST_YMin(box2d(the_geom)) as ymin, ST_YMax(box2d(the_geom)) as ymax FROM av_dtm_dom_meta.dtm_dom_index as a, av_dtm_dom_meta.kantonsgrenzen as b WHERE a.the_geom && b.geom AND ST_Intersects(a.the_geom, b.geom) AND b.kantonsnum = 11;";
+
+$result = $db->read($sql);
+
+for($i = 0; $i < count($result['NUMMER']); $i++)
+{
+    $nr = $result['NUMMER'][$i];
+    $xmin = $result['XMIN'][$i];
+    $xmax = $result['XMAX'][$i];
+    $ymin = $result['YMIN'][$i];
+    $ymax = $result['YMAX'][$i];
+    
+    $dtm_gz_name = "dtm" . str_replace("-", "", $nr) . ".xyz.gz";
+    $dtm_xyz_name = "dtm" . str_replace("-", "", $nr) . ".xyz";
+    $dtm_base = "dtm" . str_replace("-", "", $nr);
+    $dtm_tif_name = "dtm" . str_replace("-", "", $nr) . ".tif";
+    
+    $dtm_gz_file = DTM_SRC_DIR . $dtm_gz_name;
+    
+    
+    exec( "cp " . $dtm_gz_file . " " . WORK_DIR );
+    exec( "gunzip " . WORK_DIR . $dtm_gz_name );
+    exec( "fromdos " . WORK_DIR . $dtm_xyz_name );
+    
+    $cmd = "sed -e 's/\s/,/g' " . WORK_DIR . $dtm_xyz_name . " > " . WORK_DIR . "dtm_xyz.csv";
+    exec( $cmd );
+    
+    $cmd = "sed -i '1s/^/x,y,z\\n/' " . WORK_DIR . "dtm_xyz.csv";
+    exec( $cmd );
+    
+    // +1: 1/16-Kacheln sind in x-Richtung nicht durch 2 teilbar.
+    $dx = $xmax - $xmin + 1;
+    $dy = $ymax - $ymin;
+    
+    $px = $dx / 2;
+    $py = $dy / 2;
+        
+    //$cmd = "gdal_grid -a_srs epsg:21781 -a nearest:radius1=5.0:radius2=5.0 -txe " . $xmin . " " . ($xmax+1) . " -tye " . $ymin . " " . $ymax . " -outsize " . $px . " " . $py . " -of GTiff -ot Float32 -l dtm_xyz " . WORK_DIR . "dtm_xyz.vrt " . WORK_DIR . $dtm_base . "_tmp.tif";
+    $cmd = "gdal_grid -a_srs epsg:21781 -a average:min_points=9:radius1=20.0:radius2=20.0 -txe " . $xmin . " " . ($xmax+1) . " -tye " . $ymin . " " . $ymax . " -outsize " . $px . " " . $py . " -of GTiff -ot Float32 -l dtm_xyz " . WORK_DIR . "dtm_xyz.vrt " . WORK_DIR . $dtm_base . "_tmp.tif";    
+    exec( $cmd );
+    
+    // Aus irgendeinem Grund sind die Pixel nicht 2m gross...??
+    $cmd = "gdalwarp -co COMPRESS=PACKBITS -co TILED=YES -t_srs epsg:21781 -te " . $xmin . " " . $ymin . " " . ($xmax+1) . " " . $ymax . " -tr 2 2 -r near " . WORK_DIR . $dtm_base . "_tmp.tif " . WORK_DIR . $dtm_tif_name;
+    exec( $cmd );
+    
+  
+  
+    exec ( "rm " . WORK_DIR . $dtm_base . "_tmp.tif" );
+    exec ( "rm " . WORK_DIR . $dtm_xyz_name );
+    exec ( "rm " . WORK_DIR . "dtm_xyz.csv" );
+    
+    
+  //break;
+}
+
+
+exec( "gdalbuildvrt dtm.vrt *.tif" );
+
+print "hallo stefan\n";
+
+?>
