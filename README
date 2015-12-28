@@ -1,0 +1,21 @@
+- ...
+- ..
+
+- Kantonsgrenzen importieren: shp2pgsql -W latin1 -s 21781 -I kantonsgrenzen.shp av_dtm_dom_meta.kantonsgrenzen | psql -d xanadu2_test
+
+- Idee:
+ * nearest dtm für hillshading
+ * average (o.ä) für höhenkurven
+ * jeweils über vrt gehen, entweder sub-bereich oder halt temporäres tif erzeugen.
+ * bei höhenkurven halt jeweils x00-meter mehr und dann wieder abschneiden. (ogr?)
+
+
+fromdos 110733.xyz
+sed -e 's/\s/,/g' 110733.xyz > 110733.csv
+sed -i '1s/^/x,y,z\n/' 110733.csv
+
+
+ogr2ogr output.shp dtm_xyz.vrt
+
+gdal_grid -a invdist:power=2.0:smoothing=1.0 -txe 602500 606875 -tye 230000 233000 -outsize  1500 -of GTiff -ot Float64 -l dtm_xyz dtm_xyz.vrt dem.tiff
+
